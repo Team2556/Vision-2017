@@ -12,8 +12,13 @@
 #include <string>
 #include <chrono>
 #include <iostream>
+#include "HighGoal.h"
 
+#define SERVER_PORT 5805
 #define CAMERA_NUM 2
+#define RESOLUTION_X 320
+#define RESOLUTION_Y 240
+#define FPS 30
 
 cs::UsbCamera SetUsbCamera(int cameraId, cs::MjpegServer& server);
 cs::VideoCamera SetHttpCamera(llvm::StringRef cameraName, cs::MjpegServer& server);
@@ -25,54 +30,59 @@ int main() {
 
 	std::shared_ptr<NetworkTable> Table = NetworkTable::GetTable("Vision");
 
-	int streamPort = 1185;
+	grip::HighGoal vision;
 
-	cs::MjpegServer inputStream("MJPEG Server", streamPort);
+	cs::MjpegServer inputStream("MJPEG Server", SERVER_PORT);
 
 	cs::UsbCamera *Cameras[CAMERA_NUM];
-
 	for (int i = 0; i < CAMERA_NUM; i++){
 		Cameras[i] = new cs::UsbCamera(("Camera " + std::to_string(i)).c_str(), i);
 
-		Cameras[i]->SetResolution(640, 480);
-		Cameras[i]->SetFPS(20);
+		Cameras[i]->SetResolution(RESOLUTION_X, RESOLUTION_Y);
+		Cameras[i]->SetFPS(FPS);
 	}
 
+	cs::CvSink *Sinks[CAMERA_NUM];
+	for (int i = 0; i < CAMERA_NUM; i++){
+		Sinks[i] = new cs::CvSink(("Sink " + std::to_string(i)).c_str());
+
+		Sinks[i]->SetSource(*Cameras[i]);
+	}
+
+	cs::CvSource Source("Camera Source", cs::VideoMode::PixelFormat::kMJPEG, RESOLUTION_X, RESOLUTION_Y, FPS);
+	inputStream.SetSource(Source);
 
 	/*cs::UsbCamera camera = SetUsbCamera(0, inputStream);
 
 	camera.SetResolution(640,480);
-	camera.SetFPS(20);*/
+	camera.SetFPS(20);
 
 	cs::CvSink imageSink("CV Image Grabber");
 	imageSink.SetSource(*Cameras[0]);
 
 	cs::CvSource imageSource("CV Image Source", cs::VideoMode::PixelFormat::kMJPEG, 640, 480, 20);
 	cs::MjpegServer cvStream("CV Image Stream", 1186);
-	cvStream.SetSource(imageSource);
+	cvStream.SetSource(imageSource);*/
 
 	cv::Mat inputImage;
-	cv::Mat hsv;
 
-	double LastCamera = -1.0;
+	//double LastCamera = -1.0;
 
 	while (true) {
-		auto frameTime = imageSink.GrabFrame(inputImage);
+		//if (Table->GetNumber("Camera", -1.0) < 0) continue;
+		auto frameTime = Sinks[Table->GetNumber("Camera", 0.0) < CAMERA_NUM ? Table->GetNumber("Camera", 0.0) >= 0 ? (int)Table->GetNumber("Camera", 0.0) : 0 : CAMERA_NUM - 1]->GrabFrame(inputImage);
 		if (frameTime == 0) continue;
 
-		if (LastCamera != Table->GetNumber("Camera", -1.0)){
-			inputStream.StopStream();
-
+		/*if (LastCamera != Table->GetNumber("Camera", -1.0)){
 			std::cout << Table->GetNumber("Camera", -1.0) << std::endl;
+				
+			inputStream.SetSource(*Sinks[(int)Table->GetNumber("Camera", -1.0)]);
+			LastCamera = Table->GetNumber("Camera", -1.0);
+		}*/
 
-			inputStream.swap(*Cameras[(int)Table->GetNumber("Camera", -1.0)], *Cameras[(int)LastCamera]);
+		//vision.Process(inputImage);
 
-			/*inputStream.SetSource(*Cameras[(int)Table->GetNumber("Camera", -1.0)]);
-			LastCamera = Table->GetNumber("Camera", -1.0);*/
-
-			inputStream.StartStream();
-		}
-
+		Source.PutFrame(Table->GetBoolean("Processed", false) ? *vision.GetRgbThresholdOutput() : inputImage);
 		/*cvtColor(inputImage, hsv, cv::COLOR_BGR2HSV);
 
 		imageSource.PutFrame(hsv);*/
